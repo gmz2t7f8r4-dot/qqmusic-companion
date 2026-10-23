@@ -1,0 +1,20 @@
+services:
+  qqmusic-companion:
+    build: .
+    container_name: qqmusic-companion
+    restart: unless-stopped
+    environment:
+      MCP_TOKEN: ${MCP_TOKEN}
+      COLLECTOR_TOKEN: ${COLLECTOR_TOKEN}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      RETENTION_DAYS: ${RETENTION_DAYS:-7}
+      STALE_SECONDS: ${STALE_SECONDS:-60}
+      MEDIA_STALE_SECONDS: ${MEDIA_STALE_SECONDS:-90}
+      DB_PATH: /data/qqmusic.db
+    volumes:
+      - qqmusic-data:/data
+    ports:
+      - "8080:8080"
+
+volumes:
+  qqmusic-data:

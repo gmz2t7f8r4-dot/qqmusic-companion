@@ -1,0 +1,22 @@
+# 本地数据（听歌记录、日志、待上传队列）
+local-data/
+
+# 本地真实配置：含访问口令，绝对不能提交
+local/config.ini
+cloud/.env.local
+cloud/.env
+
+# 依赖包（按 docs 里的说明重新下载，别塞进仓库）
+local/vendor/
+cloud/vendor/
+.venv/
+venv/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 系统文件
+Thumbs.db
+desktop.ini
+.DS_Store

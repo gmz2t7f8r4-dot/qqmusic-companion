@@ -1,0 +1,7 @@
+# 本地采集器依赖（已经解压到 local\vendor，一般不需要再装）
+# 只有换电脑/重装时才用：
+#   python -m pip install --target ..\local\vendor winrt-Windows.Media.Control
+winrt-runtime==3.2.1
+winrt-Windows.Foundation==3.2.1
+winrt-Windows.Foundation.Collections==3.2.1
+winrt-Windows.Media.Control==3.2.1
