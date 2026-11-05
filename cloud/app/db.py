@@ -297,6 +297,19 @@ def get_listen_job(job_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def expire_stale_jobs(minutes: int = 15) -> int:
+    """卡在 running 太久的任务判失败（电脑断网/休眠时常见），免得永远"进行中"。"""
+    cutoff = iso(now() - timedelta(minutes=minutes))
+    with db() as conn:
+        cur = conn.execute(
+            "UPDATE listen_jobs SET status='failed', error=?, finished_at=? "
+            "WHERE status='running' AND COALESCE(claimed_at, requested_at) < ?",
+            ("分析超时：采集器没把结果传回来（可能断网或休眠了）", now_iso(), cutoff),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
 def recent_listen_jobs(limit: int = 5) -> list[dict]:
     with db() as conn:
         rows = conn.execute(

@@ -80,6 +80,7 @@ class ListenWorker(threading.Thread):
         buffered = self.recorder.buffered_seconds()
 
         if buffered < self.cfg.listen_min_seconds:
+            log.info("任务 %s 跳过：只录到 %.0f 秒，不够 %.0f 秒", job_id, buffered, self.cfg.listen_min_seconds)
             self._finish(job_id, False, None, f"还没录到足够的声音（当前 {buffered:.0f} 秒，至少需要 {self.cfg.listen_min_seconds:.0f} 秒）")
             return
 
@@ -126,16 +127,19 @@ class ListenWorker(threading.Thread):
 
     def _finish(self, job_id: str, ok: bool, report: str | None, error: str | None,
                 seconds: float | None = None, title: str | None = None) -> None:
-        self._call(
-            "POST",
-            "/api/v1/listen/result",
-            {
-                "job_id": job_id,
-                "device": self.cfg.device_name,
-                "ok": ok,
-                "report": report,
-                "error": error,
-                "seconds": seconds,
-                "title": title,
-            },
-        )
+        body = {
+            "job_id": job_id,
+            "device": self.cfg.device_name,
+            "ok": ok,
+            "report": report,
+            "error": error,
+            "seconds": seconds,
+            "title": title,
+        }
+        for attempt in range(3):
+            status, payload = self._call("POST", "/api/v1/listen/result", body)
+            if status == 200:
+                return
+            log.warning("回传任务 %s 失败（第 %d 次）：%s", job_id, attempt + 1, payload)
+            time.sleep(2 * (attempt + 1))
+        log.error("回传任务 %s 连续失败，云端会把它判为超时", job_id)

@@ -1,6 +1,7 @@
 @echo off
 cd /d "%~dp0"
-set "PY=%LOCALAPPDATA%\Programs\Python\Python313\pythonw.exe"
+set "PY=%LOCALAPPDATA%\qqmusic-audio\venv\Scripts\pythonw.exe"
+if not exist "%PY%" set "PY=%LOCALAPPDATA%\Programs\Python\Python313\pythonw.exe"
 if not exist "%PY%" (
   echo 找不到 Python 程序，路径不对。
   echo 请用记事本打开本文件，把 PY= 后面的路径改成 pythonw.exe 的真实位置。

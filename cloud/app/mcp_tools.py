@@ -267,6 +267,7 @@ def get_service_status() -> dict:
             "unknown_duration_skipped": collector.get("unknown_duration_skipped"),
             "collector_version": collector.get("version"),
             "uptime_seconds": collector.get("uptime_seconds"),
+            "audio": collector.get("audio"),
         }
         if not online:
             collector_block["note"] = (
@@ -318,6 +319,8 @@ def listen_now(mode: str = "shallow", wait_seconds: int = 20) -> dict:
     if mode not in ("shallow", "deep"):
         return {"ok": False, "status": "bad_mode", "note": "mode 只能是 shallow 或 deep"}
 
+    db.expire_stale_jobs()
+
     online, age = _collector_online()
     if not online:
         return {
@@ -366,6 +369,7 @@ def listen_now(mode: str = "shallow", wait_seconds: int = 20) -> dict:
 @mcp.tool()
 def get_listen_result(job_id: str) -> dict:
     """取"一起听"任务的结果。"""
+    db.expire_stale_jobs()
     job = db.get_listen_job(job_id)
     if not job:
         return {"ok": False, "status": "not_found", "note": "没有这个任务号（可能已经过期清理）"}
