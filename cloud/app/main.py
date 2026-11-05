@@ -29,6 +29,16 @@ class IngestBody(BaseModel):
     events: list[dict] = Field(default_factory=list)
 
 
+class ListenResultBody(BaseModel):
+    job_id: str
+    ok: bool = False
+    report: str | None = None
+    error: str | None = None
+    seconds: float | None = None
+    title: str | None = None
+    device: str = Field(default="unknown", max_length=64)
+
+
 api = FastAPI(title="QQ Music Companion", version=VERSION, docs_url=None, redoc_url=None, openapi_url=None)
 
 
@@ -57,6 +67,20 @@ async def ingest(body: IngestBody) -> dict:
         "server_time": now_iso(),
         "retention_from": iso(retention_start()),
     }
+
+
+@api.get("/api/v1/listen/job", dependencies=[Depends(require_collector)])
+async def listen_claim(device: str = "unknown") -> dict:
+    """本地采集器来领"一起听"任务；没有任务就返回 null。"""
+    job = db.claim_listen_job(device)
+    return {"job": job, "server_time": now_iso()}
+
+
+@api.post("/api/v1/listen/result", dependencies=[Depends(require_collector)])
+async def listen_result(body: ListenResultBody) -> dict:
+    db.finish_listen_job(body.job_id, body.ok, body.report, body.error, body.seconds, body.title)
+    log.info("一起听任务 %s 完成：%s", body.job_id, "成功" if body.ok else "失败")
+    return {"ok": True, "server_time": now_iso()}
 
 
 @api.get("/")

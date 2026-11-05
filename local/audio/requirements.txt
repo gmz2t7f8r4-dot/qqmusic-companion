@@ -1,0 +1,16 @@
+# 一起听用的 Python 依赖（装在 C 盘的独立环境里，不进项目文件夹）
+# 由 安装音频分析.bat 自动安装；这里是清单，方便以后手动重装。
+
+# 浅听：录音 + 音频特征
+numpy
+scipy
+librosa
+soundfile
+soundcard
+matplotlib
+
+# 深听：六轨分离、乐器标签、音符（basic-pitch 因要求 numpy<1.24，与新版 librosa 冲突，默认不装）
+demucs
+panns-inference
+pretty-midi
+onnxruntime

@@ -31,6 +31,23 @@ class Config:
     # 日志
     log_keep_days: int = 7
 
+    # 一起听（录音 + 音频分析）
+    audio_enabled: bool = True
+    listen_poll_seconds: float = 3.0
+    listen_min_seconds: float = 15.0
+    listen_max_seconds: float = 600.0
+    listen_deep_enabled: bool = True
+    audio_python: Path = Path(
+        os.environ.get("LOCALAPPDATA", "") + r"\qqmusic-audio\venv\Scripts\python.exe"
+    )
+    tinggu_dir: Path = PROJECT_DIR / "vendor" / "tinggu"
+
+
+def _bool(value: str, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on", "是")
+
 
 def load(path: Path | None = None) -> Config:
     cfg = Config()
@@ -57,6 +74,19 @@ def load(path: Path | None = None) -> Config:
     cfg.complete_ratio = float(get("collector", "complete_ratio", "0.95"))
     cfg.discontinuity_seconds = float(get("collector", "discontinuity_seconds", "30"))
     cfg.log_keep_days = int(get("collector", "log_keep_days", "7"))
+
+    # 一起听
+    cfg.audio_enabled = _bool(get("audio", "enabled", "true"), True)
+    cfg.listen_poll_seconds = float(get("audio", "poll_seconds", "3"))
+    cfg.listen_min_seconds = float(get("audio", "min_seconds", "15"))
+    cfg.listen_max_seconds = float(get("audio", "max_buffer_seconds", "600"))
+    cfg.listen_deep_enabled = _bool(get("audio", "deep_enabled", "true"), True)
+    python_override = get("audio", "python", "")
+    if python_override:
+        cfg.audio_python = Path(python_override)
+    tinggu_override = get("audio", "tinggu_dir", "")
+    if tinggu_override:
+        cfg.tinggu_dir = Path(tinggu_override)
 
     # 环境变量优先，方便临时指向测试环境
     cfg.cloud_base_url = os.environ.get("QQCOMP_BASE_URL", cfg.cloud_base_url).rstrip("/")

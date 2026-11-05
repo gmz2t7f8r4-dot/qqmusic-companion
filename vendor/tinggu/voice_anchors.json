@@ -1,0 +1,99 @@
+{
+  "anchorVersion": 1,
+  "unit": "song-median-of-valid-lines",
+  "textureVersion": 3,
+  "axes": [
+    "airRatio",
+    "centroidHz",
+    "hnrDb"
+  ],
+  "anchors": [
+    {
+      "name": "Video Games",
+      "artist": "Lana Del Rey",
+      "year": 2011,
+      "ends": {
+        "airRatio": "high",
+        "centroidHz": "low"
+      },
+      "review": "https://pitchfork.com/reviews/tracks/12276-video-games/",
+      "values": {
+        "airRatio": 0.14,
+        "centroidHz": 2202.5,
+        "hnrDb": 15.95
+      }
+    },
+    {
+      "name": "天路",
+      "artist": "韩红",
+      "year": 2005,
+      "ends": {
+        "airRatio": "low"
+      },
+      "review": "https://www.sina.cn/news/detail/5320602061900544.html",
+      "values": {
+        "airRatio": 0.17,
+        "centroidHz": 2921.0,
+        "hnrDb": 16.7
+      }
+    },
+    {
+      "name": "Hello",
+      "artist": "Adele",
+      "year": 2015,
+      "ends": {
+        "airRatio": "low"
+      },
+      "review": "https://pitchfork.com/reviews/albums/21246-25/",
+      "values": {
+        "airRatio": 0.22,
+        "centroidHz": 2803.0,
+        "hnrDb": 14.6
+      }
+    },
+    {
+      "name": "大鱼",
+      "artist": "周深",
+      "year": 2016,
+      "ends": {
+        "centroidHz": "high",
+        "hnrDb": "high"
+      },
+      "review": "https://music.douban.com/review/13010625/",
+      "values": {
+        "airRatio": 0.3,
+        "centroidHz": 3215.5,
+        "hnrDb": 12.6
+      }
+    },
+    {
+      "name": "隐形的翅膀",
+      "artist": "张韶涵",
+      "year": 2006,
+      "ends": {
+        "centroidHz": "high"
+      },
+      "review": "http://y.qq.com/msa/cdreview/0_1631.html",
+      "values": {
+        "airRatio": 0.24,
+        "centroidHz": 2913.0,
+        "hnrDb": 17.05
+      }
+    },
+    {
+      "name": "Human",
+      "artist": "Rag'n'Bone Man",
+      "year": 2016,
+      "ends": {
+        "hnrDb": "low"
+      },
+      "review": "https://www.thelineofbestfit.com/reviews/albums/ragnbone-man-has-souled-out-but-after-all-hes-only-human",
+      "values": {
+        "airRatio": 0.15,
+        "centroidHz": 2131.0,
+        "hnrDb": 8.0
+      },
+      "reviewScope": "album"
+    }
+  ]
+}

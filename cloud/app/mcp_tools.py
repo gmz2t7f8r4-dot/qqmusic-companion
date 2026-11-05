@@ -1,10 +1,11 @@
-"""五个 MCP 工具：当前播放、歌词、播放历史、听歌统计、服务状态。
+"""MCP 工具：当前播放、歌词、播放历史、听歌统计、服务状态，以及"一起听"。
 
 原则：拿不到就说拿不到；过期数据一定标注，不把旧状态伪装成实时状态。
 """
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 
 from mcp.server.fastmcp import FastMCP
@@ -291,4 +292,91 @@ def get_service_status() -> dict:
             "to": iso(day_start(today() + timedelta(days=1))),
         },
         "collector": collector_block,
+    }
+
+
+def _collector_online() -> tuple[bool, float | None]:
+    state = db.latest_state()
+    if not state:
+        return False, None
+    received = parse_iso(state.get("received_at"))
+    if not received:
+        return False, None
+    age = (now() - received).total_seconds()
+    return age <= settings.stale_seconds, age
+
+
+@mcp.tool()
+def listen_now(mode: str = "shallow", wait_seconds: int = 20) -> dict:
+    """让小奥"亲耳听一下"我正在放的那首歌，拿到一份文字听感报告。
+
+    mode: shallow（浅听，快，几十秒）或 deep（深听，要等歌放完再分析一两分钟）。
+    wait_seconds: 愿意最多等多久；超时会返回任务号，可以稍后用 get_listen_result 再取。
+
+    只有电脑开着、采集器在跑、并且正在放歌时才行；音频只在我电脑上处理，不会上传。
+    """
+    if mode not in ("shallow", "deep"):
+        return {"ok": False, "status": "bad_mode", "note": "mode 只能是 shallow 或 deep"}
+
+    online, age = _collector_online()
+    if not online:
+        return {
+            "ok": False,
+            "status": "collector_offline",
+            "note": "电脑那边没有心跳，采集器可能没开或电脑关机了"
+            + (f"（最后一次 {human_age(age)}）" if age is not None else ""),
+        }
+
+    state = db.latest_state() or {}
+    media = (state.get("payload") or {}).get("media") or {}
+    if (media.get("status") or "") != "playing":
+        return {
+            "ok": False,
+            "status": "not_playing",
+            "note": f"现在没有在放歌（状态：{media.get('status') or '未知'}）",
+        }
+
+    job_id = db.create_listen_job(mode)
+    deadline = time.time() + max(0, min(wait_seconds, 120))
+    while time.time() < deadline:
+        job = db.get_listen_job(job_id)
+        if job and job["status"] in ("done", "failed"):
+            if job["status"] == "done":
+                return {
+                    "ok": True,
+                    "status": "done",
+                    "job_id": job_id,
+                    "mode": mode,
+                    "track": job.get("track_title"),
+                    "recorded_seconds": job.get("seconds_recording"),
+                    "report": job.get("report"),
+                }
+            return {"ok": False, "status": "failed", "job_id": job_id, "note": job.get("error")}
+        time.sleep(1)
+
+    return {
+        "ok": True,
+        "status": "pending",
+        "job_id": job_id,
+        "mode": mode,
+        "note": "任务已经排给电脑那边了，还在分析；过一会儿用 get_listen_result 取结果",
+    }
+
+
+@mcp.tool()
+def get_listen_result(job_id: str) -> dict:
+    """取"一起听"任务的结果。"""
+    job = db.get_listen_job(job_id)
+    if not job:
+        return {"ok": False, "status": "not_found", "note": "没有这个任务号（可能已经过期清理）"}
+    return {
+        "ok": job["status"] == "done",
+        "status": job["status"],
+        "mode": job["mode"],
+        "track": job.get("track_title"),
+        "recorded_seconds": job.get("seconds_recording"),
+        "requested_at": job.get("requested_at"),
+        "finished_at": job.get("finished_at"),
+        "report": job.get("report"),
+        "note": job.get("error") if job["status"] == "failed" else None,
     }

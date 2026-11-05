@@ -1,8 +1,9 @@
 # 本地数据（听歌记录、日志、待上传队列）
 local-data/
 
-# 本地真实配置：含访问口令，绝对不能提交
+# 本地真实配置：含访问口令，绝对不能提交（含各种备份副本）
 local/config.ini
+local/config.ini.*
 cloud/.env.local
 cloud/.env
 
@@ -11,6 +12,10 @@ local/vendor/
 cloud/vendor/
 .venv/
 venv/
+
+# 音频分析：听骨生成的缓存和频谱图（可重算，不入库）
+vendor/tinggu/ears_cache/
+local-data/*.wav
 
 # Python 缓存
 __pycache__/

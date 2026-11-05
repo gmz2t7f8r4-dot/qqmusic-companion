@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Iterable
 
 from .config import settings
-from .timeutil import clamp_day_range, iso, now_iso, retention_start
+from .timeutil import clamp_day_range, iso, now, now_iso, retention_start
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS play_events (
@@ -41,6 +42,22 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+-- 一起听：小奥发起的"听一下正在放的这首歌"任务
+CREATE TABLE IF NOT EXISTS listen_jobs (
+    id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    device TEXT,
+    track_title TEXT,
+    requested_at TEXT NOT NULL,
+    claimed_at TEXT,
+    finished_at TEXT,
+    report TEXT,
+    error TEXT,
+    seconds_recording REAL
+);
+CREATE INDEX IF NOT EXISTS idx_listen_status ON listen_jobs(status);
 """
 
 
@@ -233,3 +250,68 @@ def health() -> tuple[bool, str | None]:
         return True, None
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
+
+
+# ---------- 一起听（听歌分析） ----------
+def create_listen_job(mode: str) -> str:
+    job_id = uuid.uuid4().hex[:12]
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO listen_jobs(id, mode, status, requested_at) VALUES(?,?,?,?)",
+            (job_id, mode, "pending", now_iso()),
+        )
+        conn.commit()
+    return job_id
+
+
+def claim_listen_job(device: str) -> dict | None:
+    """本地采集器来领任务：取最早一条 pending，标记为 running。"""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM listen_jobs WHERE status='pending' ORDER BY requested_at LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE listen_jobs SET status='running', claimed_at=?, device=? WHERE id=?",
+            (now_iso(), device, row["id"]),
+        )
+        conn.commit()
+        return dict(row)
+
+
+def finish_listen_job(job_id: str, ok: bool, report: str | None, error: str | None,
+                      seconds: float | None = None, title: str | None = None) -> None:
+    with db() as conn:
+        conn.execute(
+            "UPDATE listen_jobs SET status=?, report=?, error=?, seconds_recording=?, "
+            "track_title=COALESCE(?, track_title), finished_at=? WHERE id=?",
+            ("done" if ok else "failed", report, error, seconds, title, now_iso(), job_id),
+        )
+        conn.commit()
+
+
+def get_listen_job(job_id: str) -> dict | None:
+    with db() as conn:
+        row = conn.execute("SELECT * FROM listen_jobs WHERE id=?", (job_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def recent_listen_jobs(limit: int = 5) -> list[dict]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, mode, status, track_title, requested_at, finished_at FROM listen_jobs "
+            "ORDER BY requested_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cleanup_listen_jobs(days: int = 2) -> int:
+    from datetime import timedelta
+
+    cutoff = iso(datetime.now() - timedelta(days=days))
+    with db() as conn:
+        cur = conn.execute("DELETE FROM listen_jobs WHERE requested_at < ?", (cutoff,))
+        conn.commit()
+        return cur.rowcount

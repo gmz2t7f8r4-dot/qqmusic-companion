@@ -88,7 +88,28 @@ def run_collector(cfg: Config) -> int:
 
     tracker.on_event(handle_event)
     uploader.start()
+
+    recorder = None
+    audio_worker = None
+    if cfg.audio_enabled:
+        try:
+            from audio.recorder import LoopbackRecorder
+            from audio.worker import ListenWorker
+
+            recorder = LoopbackRecorder(
+                DATA_DIR / "audio-tmp",
+                max_seconds=int(cfg.listen_max_seconds),
+            )
+            recorder.start()
+            audio_worker = ListenWorker(cfg, recorder, DATA_DIR / "audio-tmp")
+            audio_worker.start()
+        except Exception:  # noqa: BLE001
+            log.exception("听歌分析的录音线程没起来（其他功能不受影响）")
+            recorder = None
+            audio_worker = None
+
     log.info("采集器启动：设备=%s，云端=%s", cfg.device_name, cfg.cloud_base_url or "（未配置）")
+    log.info("一起听：%s", "已开启" if recorder else "关闭")
 
     last_heartbeat = 0.0
     stop_flag = DATA_DIR / "stop.flag"
@@ -100,16 +121,32 @@ def run_collector(cfg: Config) -> int:
             now = time.time()
             snapshot = reader.read()
             tracker.tick(snapshot, now)
+            if recorder is not None and snapshot.present and snapshot.title:
+                current = tracker.current
+                duration = current.duration if current and current.key == snapshot.key else None
+                recorder.set_track(snapshot.key, snapshot.title, snapshot.artist, snapshot.album, duration)
 
             if now - last_heartbeat >= cfg.heartbeat_seconds:
                 last_heartbeat = now
-                uploader.push_state(tracker.state_payload(_state_extra(store, uploader, reader)))
+                extra = _state_extra(store, uploader, reader)
+                extra["audio"] = {
+                    "enabled": recorder is not None,
+                    "buffered_seconds": round(recorder.buffered_seconds(), 1) if recorder else 0,
+                    "error": recorder.error if recorder else None,
+                    "jobs_done": audio_worker.jobs_done if audio_worker else 0,
+                }
+                uploader.push_state(tracker.state_payload(extra))
 
             time.sleep(cfg.poll_seconds)
     except KeyboardInterrupt:
         log.info("收到退出信号")
     finally:
         tracker.finish_all()
+        if audio_worker is not None:
+            audio_worker.stop()
+        if recorder is not None:
+            recorder.stop()
+            recorder.clear()
         uploader.stop()
         uploader.join(timeout=3)
         # 退出前再尽力上传一次
