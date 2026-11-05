@@ -7,7 +7,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 优先用腾讯云内网镜像（这台服务器在国内，走 PyPI 官方源又慢又容易超时）；
+# 镜像不可用时自动回退官方源，保证换台机器也能构建。
+RUN pip install --no-cache-dir -i https://mirrors.tencentyun.com/pypi/simple -r requirements.txt \
+    || pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
