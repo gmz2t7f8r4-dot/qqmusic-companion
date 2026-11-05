@@ -68,12 +68,17 @@ class ListenWorker(threading.Thread):
     def _tick(self) -> None:
         status, payload = self._call("GET", f"/api/v1/listen/job?device={self.cfg.device_name}")
         if status != 200 or not isinstance(payload, dict):
-            if status not in (0, 200):
+            if status != 0:
+                log.warning("领任务返回 HTTP %s：%s", status, str(payload)[:120])
                 self.last_error = f"领任务失败 HTTP {status}"
             return
         job = payload.get("job")
         if not job:
+            self._polls = getattr(self, "_polls", 0) + 1
+            if self._polls % 200 == 1:
+                log.info("轮询中（云端=%s，暂无任务）", self.cfg.cloud_base_url)
             return
+        log.info("领到任务 %s（%s）", job.get("id"), job.get("mode"))
 
         job_id = job["id"]
         mode = job.get("mode", "shallow")
@@ -88,42 +93,56 @@ class ListenWorker(threading.Thread):
             self._finish(job_id, False, None, "服务端配置为只允许浅听")
             return
 
-        wav = self.audio_dir / f"{job_id}.wav"
-        key, title, seconds = self.recorder.snapshot(wav)
         info = self.recorder.track_info()
-        lrc_path = None
+        wav = self.audio_dir / f"{self._safe_name(info.get('title')) or job_id}.wav"
+        started = time.time()
         try:
-            from audio.lyrics_for_analysis import fetch_lrc, write_lrc
+            log.info("任务 %s 开始：%s，缓冲 %.0f 秒", job_id, mode, buffered)
+            key, title, seconds = self.recorder.snapshot(wav)
+            log.info("任务 %s 录音快照 %.0f 秒（%.1f 秒）", job_id, seconds, time.time() - started)
+            lrc_path = None
+            try:
+                from audio.lyrics_for_analysis import fetch_lrc, write_lrc
 
-            lrc = fetch_lrc(info.get("title") or title, info.get("artist"), info.get("duration"))
-            if lrc:
-                lrc_path = write_lrc(lrc, self.audio_dir / f"{job_id}.lrc")
-        except Exception:  # noqa: BLE001
-            log.warning("取歌词失败，按纯音乐处理", exc_info=True)
+                lrc = fetch_lrc(info.get("title") or title, info.get("artist"), info.get("duration"))
+                if lrc:
+                    lrc_path = write_lrc(lrc, self.audio_dir / f"{job_id}.lrc")
+                log.info("任务 %s 歌词：%s", job_id, "有" if lrc else "没有")
+            except Exception:  # noqa: BLE001
+                log.warning("取歌词失败，按纯音乐处理", exc_info=True)
 
-        log.info("开始分析：%s（%s，%.0f 秒）", title or key or "未知", mode, seconds)
-        try:
+            log.info("开始分析：%s（%s，%.0f 秒）", title or key or "未知", mode, seconds)
             outcome = analyze(
                 wav, mode,
                 venv_python=self.cfg.audio_python,
                 tinggu_dir=self.cfg.tinggu_dir,
                 lyric=str(lrc_path) if lrc_path else None,
             )
+            log.info("任务 %s 分析结束：ok=%s（共 %.0f 秒）", job_id, outcome.get("ok"), time.time() - started)
+            if outcome.get("ok"):
+                self.jobs_done += 1
+                self._finish(job_id, True, outcome["report"], None, seconds, title)
+                log.info("分析完成：%s", title or key)
+            else:
+                self._finish(job_id, False, None, outcome.get("error") or "分析失败", seconds, title)
+                log.warning("分析失败：%s", outcome.get("error"))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("任务 %s 处理出错", job_id)
+            self._finish(job_id, False, None, f"本机处理失败：{exc}", None, None)
         finally:
-            for leftover in (wav, lrc_path):
-                if leftover:
+            for leftover in (wav, self.audio_dir / f"{job_id}.lrc"):
+                if leftover and Path(leftover).exists():
                     try:
                         Path(leftover).unlink(missing_ok=True)
                     except OSError:
                         pass
 
-        if outcome.get("ok"):
-            self.jobs_done += 1
-            self._finish(job_id, True, outcome["report"], None, seconds, title)
-            log.info("分析完成：%s", title or key)
-        else:
-            self._finish(job_id, False, None, outcome.get("error") or "分析失败", seconds, title)
-            log.warning("分析失败：%s", outcome.get("error"))
+    @staticmethod
+    def _safe_name(text: str | None) -> str:
+        import re
+
+        cleaned = re.sub("[\\\\/:*?\"<>|\\r\\n]", "_", (text or "").strip())
+        return cleaned[:40]
 
     def _finish(self, job_id: str, ok: bool, report: str | None, error: str | None,
                 seconds: float | None = None, title: str | None = None) -> None:
@@ -136,10 +155,10 @@ class ListenWorker(threading.Thread):
             "seconds": seconds,
             "title": title,
         }
-        for attempt in range(3):
+        for attempt in range(8):
             status, payload = self._call("POST", "/api/v1/listen/result", body)
             if status == 200:
                 return
-            log.warning("回传任务 %s 失败（第 %d 次）：%s", job_id, attempt + 1, payload)
-            time.sleep(2 * (attempt + 1))
+            log.warning("回传任务 %s 失败（第 %d 次）：%s", job_id, attempt + 1, str(payload)[:120])
+            time.sleep(min(15, 3 * (attempt + 1)))
         log.error("回传任务 %s 连续失败，云端会把它判为超时", job_id)

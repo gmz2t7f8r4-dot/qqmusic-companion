@@ -1,0 +1,107 @@
+"""录音专用进程：只干一件事——把系统正在放的声音按 0.5 秒一块写成文件。
+
+为什么要单独一个进程：声音驱动（soundcard/cffi）在录音时几乎一直占着 Python 的全局锁，
+放在分析进程里会把领任务、按任务分析的线程饿死（实测就是这个原因）。
+
+它读 audio-tmp/state.json 知道当前在放哪首，切歌就把旧的块全删掉。
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import time
+import wave
+from pathlib import Path
+
+import numpy as np
+
+APP_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = APP_DIR.parent / "local-data"
+TMP_DIR = DATA_DIR / "audio-tmp"
+BUF_DIR = TMP_DIR / "buf"
+STATE_FILE = TMP_DIR / "state.json"
+STATUS_FILE = TMP_DIR / "recorder-status.json"
+
+SAMPLE_RATE = 48000
+BLOCK_SECONDS = 0.5
+MAX_SECONDS = 600
+
+
+def clear_buffer() -> None:
+    BUF_DIR.mkdir(parents=True, exist_ok=True)
+    for item in BUF_DIR.glob("*.pcm"):
+        try:
+            item.unlink()
+        except OSError:
+            pass
+
+
+def main() -> int:
+    import soundcard as sc
+
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    BUF_DIR.mkdir(parents=True, exist_ok=True)
+    clear_buffer()
+
+    speaker = sc.default_speaker()
+    mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+    block = int(SAMPLE_RATE * BLOCK_SECONDS)
+    max_chunks = int(MAX_SECONDS / BLOCK_SECONDS)
+
+    seq = 0
+    current_key = ""
+    last_state_read = 0.0
+    error = None
+
+    try:
+        with mic.recorder(samplerate=SAMPLE_RATE, channels=2) as rec:
+            while True:
+                now = time.time()
+                if now - last_state_read > 1:
+                    last_state_read = now
+                    try:
+                        st = json.loads(STATE_FILE.read_text(encoding="utf-8")) if STATE_FILE.exists() else {}
+                        key = st.get("key") or ""
+                        if key and key != current_key:
+                            clear_buffer()
+                            current_key = key
+                            seq = 0
+                    except (OSError, ValueError):
+                        pass
+
+                data = rec.record(numframes=block)
+                if data is None or len(data) == 0:
+                    continue
+                if not current_key:
+                    continue  # 还没开始放歌，不存
+
+                mono = np.mean(data, axis=1)
+                pcm = np.clip(mono, -1.0, 1.0)
+                pcm16 = (pcm * 32767).astype(np.int16)
+                (BUF_DIR / f"{seq:08d}.pcm").write_bytes(pcm16.tobytes())
+                seq += 1
+
+                if seq > max_chunks:
+                    oldest = seq - max_chunks
+                    try:
+                        (BUF_DIR / f"{oldest:08d}.pcm").unlink()
+                    except OSError:
+                        pass
+
+                STATUS_FILE.write_text(json.dumps({
+                    "key": current_key,
+                    "buffered_seconds": round(min(seq, max_chunks) * BLOCK_SECONDS, 1),
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "error": error,
+                }, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        error = str(exc)
+        STATUS_FILE.write_text(json.dumps({"key": current_key, "buffered_seconds": 0,
+                                           "error": error}, ensure_ascii=False), encoding="utf-8")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -17,9 +17,10 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 
 import config as config_module
-from config import DATA_DIR, LOG_DIR, Config
+from config import APP_DIR, DATA_DIR, LOG_DIR, Config
 from media_session import MediaSessionReader
 from store import Store
 from tracker import Tracker
@@ -91,25 +92,48 @@ def run_collector(cfg: Config) -> int:
 
     recorder = None
     audio_worker = None
+    audio_proc = None
+    tmp_dir = DATA_DIR / "audio-tmp"
+    state_file = tmp_dir / "state.json"
+    agent_status_file = tmp_dir / "agent-status.json"
+
+    def write_audio_state(snapshot) -> None:
+        if not snapshot.present or not snapshot.title:
+            return
+        current = tracker.current
+        duration = current.duration if current and current.key == snapshot.key else None
+        payload = {
+            "key": snapshot.key,
+            "title": snapshot.title,
+            "artist": snapshot.artist,
+            "album": snapshot.album,
+            "duration": duration,
+        }
+        try:
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp = state_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(state_file)
+        except OSError:
+            pass
+
     if cfg.audio_enabled:
         try:
-            from audio.recorder import LoopbackRecorder
-            from audio.worker import ListenWorker
+            import subprocess
+            import sys as _sys
 
-            recorder = LoopbackRecorder(
-                DATA_DIR / "audio-tmp",
-                max_seconds=int(cfg.listen_max_seconds),
+            python = Path(cfg.audio_python) if Path(cfg.audio_python).exists() else Path(_sys.executable)
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            audio_proc = subprocess.Popen(
+                [str(python), "-u", str(APP_DIR / "audio" / "agent.py")],
+                cwd=str(APP_DIR), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            recorder.start()
-            audio_worker = ListenWorker(cfg, recorder, DATA_DIR / "audio-tmp")
-            audio_worker.start()
         except Exception:  # noqa: BLE001
-            log.exception("听歌分析的录音线程没起来（其他功能不受影响）")
-            recorder = None
-            audio_worker = None
+            log.exception("一起听进程没起来（其他功能不受影响）")
+            audio_proc = None
 
     log.info("采集器启动：设备=%s，云端=%s", cfg.device_name, cfg.cloud_base_url or "（未配置）")
-    log.info("一起听：%s", "已开启" if recorder else "关闭")
+    log.info("一起听：%s", "已开启（独立进程）" if audio_proc else "关闭")
 
     last_heartbeat = 0.0
     stop_flag = DATA_DIR / "stop.flag"
@@ -121,20 +145,23 @@ def run_collector(cfg: Config) -> int:
             now = time.time()
             snapshot = reader.read()
             tracker.tick(snapshot, now)
-            if recorder is not None and snapshot.present and snapshot.title:
-                current = tracker.current
-                duration = current.duration if current and current.key == snapshot.key else None
-                recorder.set_track(snapshot.key, snapshot.title, snapshot.artist, snapshot.album, duration)
+            write_audio_state(snapshot)
 
             if now - last_heartbeat >= cfg.heartbeat_seconds:
                 last_heartbeat = now
                 extra = _state_extra(store, uploader, reader)
-                extra["audio"] = {
-                    "enabled": recorder is not None,
-                    "buffered_seconds": round(recorder.buffered_seconds(), 1) if recorder else 0,
-                    "error": recorder.error if recorder else None,
-                    "jobs_done": audio_worker.jobs_done if audio_worker else 0,
-                }
+                audio_info = {"enabled": audio_proc is not None and audio_proc.poll() is None}
+                try:
+                    if agent_status_file.exists():
+                        agent = json.loads(agent_status_file.read_text(encoding="utf-8"))
+                        audio_info.update({
+                            "buffered_seconds": agent.get("buffered_seconds"),
+                            "jobs_done": agent.get("jobs_done"),
+                            "error": agent.get("error"),
+                        })
+                except (OSError, ValueError):
+                    pass
+                extra["audio"] = audio_info
                 uploader.push_state(tracker.state_payload(extra))
 
             time.sleep(cfg.poll_seconds)
@@ -142,11 +169,12 @@ def run_collector(cfg: Config) -> int:
         log.info("收到退出信号")
     finally:
         tracker.finish_all()
-        if audio_worker is not None:
-            audio_worker.stop()
-        if recorder is not None:
-            recorder.stop()
-            recorder.clear()
+        if audio_proc is not None and audio_proc.poll() is None:
+            try:
+                audio_proc.terminate()
+                audio_proc.wait(timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
         uploader.stop()
         uploader.join(timeout=3)
         # 退出前再尽力上传一次

@@ -37,6 +37,16 @@ def analyze(wav_path: Path, mode: str = "shallow", venv_python: Path | None = No
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
+
+    # PANNs 的两个模型文件没下全时，用一个占位模块让它直接跳过这一层，
+    # 免得听骨在分析途中去下载 330MB 的模型、把任务卡住几十分钟。
+    home = Path(os.path.expanduser("~"))
+    checkpoints = [home / "panns_data" / "Cnn14_mAP=0.431.pth",
+                   home / "panns_data" / "Cnn14_DecisionLevelMax_mAP=0.385.pth"]
+    if not all(p.exists() and p.stat().st_size > 300 * 1024 * 1024 for p in checkpoints):
+        stub_dir = Path(__file__).resolve().parent / "_stubs"
+        env["PYTHONPATH"] = str(stub_dir) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+
     timeout = DEEP_TIMEOUT if mode == "deep" else SHALLOW_TIMEOUT
 
     try:
