@@ -86,7 +86,7 @@ qqmusic-companion\
 
 | 工具 | 用途 |
 |---|---|
-| `listen_now(mode, wait_seconds)` | 发起"听一下"。`mode` 选 `shallow`（浅听）或 `deep`（深听） |
+| `listen_now(mode, wait_seconds, when_finished)` | 发起"听一下"。`mode` 选 `shallow`（浅听）或 `deep`（深听）；`when_finished=true` 是**预约**：不现在分析，等这首自然放完再用完整录音深听 |
 | `get_listen_result(job_id)` | 按任务号取那一次的报告（发起时没分析完，或者事后回看，都用它） |
 | `get_listen_history(days, title, limit, offset)` | 先看"什么时候听过哪些歌"的清单，**一次只看一首**，挑中哪首再取详情 |
 

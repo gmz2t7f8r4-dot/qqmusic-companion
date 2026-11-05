@@ -308,10 +308,12 @@ def _collector_online() -> tuple[bool, float | None]:
 
 
 @mcp.tool()
-def listen_now(mode: str = "shallow", wait_seconds: int = 20) -> dict:
+def listen_now(mode: str = "shallow", wait_seconds: int = 20, when_finished: bool = False) -> dict:
     """让 AI"亲耳听一下"我正在放的那首歌，拿到一份文字听感报告。
 
     mode: shallow（浅听，快，几十秒）或 deep（深听，要等歌放完再分析一两分钟）。
+    when_finished: 预约式——现在不分析，等这首自然放完那一刻再深听，之后用 job_id 或
+                   get_listen_history 取。适合"这首歌还没放完，但我想放完听完整的"。
     wait_seconds: 愿意最多等多久；超时会返回任务号，可以稍后用 get_listen_result 再取。
 
     只有电脑开着、采集器在跑、并且正在放歌时才行；音频只在我电脑上处理，不会上传。
@@ -337,6 +339,17 @@ def listen_now(mode: str = "shallow", wait_seconds: int = 20) -> dict:
             "ok": False,
             "status": "not_playing",
             "note": f"现在没有在放歌（状态：{media.get('status') or '未知'}）",
+        }
+
+    if when_finished:
+        job_id = db.create_listen_job("deep", status="reserved", track_title=media.get("title"))
+        return {
+            "ok": True,
+            "status": "reserved",
+            "job_id": job_id,
+            "mode": "deep",
+            "track": media.get("title"),
+            "note": "已预约：等这首自然放完，用完整录音做深听；放完后用这个任务号取结果（或看 get_listen_history）",
         }
 
     job_id = db.create_listen_job(mode)

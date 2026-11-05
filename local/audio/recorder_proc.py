@@ -20,6 +20,8 @@ APP_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = APP_DIR.parent / "local-data"
 TMP_DIR = DATA_DIR / "audio-tmp"
 BUF_DIR = TMP_DIR / "buf"
+LAST_DIR = TMP_DIR / "last"          # 上一首的完整录音（切歌时从 buf 挪过来）
+LAST_META = TMP_DIR / "last-meta.json"
 STATE_FILE = TMP_DIR / "state.json"
 STATUS_FILE = TMP_DIR / "recorder-status.json"
 
@@ -37,6 +39,24 @@ def clear_buffer() -> None:
             pass
 
 
+def rotate_to_last(meta: dict, chunks: int) -> None:
+    """切歌时：把当前这首的录音挪到 last/，只保留最近一首。"""
+    LAST_DIR.mkdir(parents=True, exist_ok=True)
+    for old in LAST_DIR.glob("*.pcm"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    for item in sorted(BUF_DIR.glob("*.pcm")):
+        try:
+            item.replace(LAST_DIR / item.name)
+        except OSError:
+            pass
+    meta = dict(meta)
+    meta["seconds"] = round(chunks * BLOCK_SECONDS, 1)
+    LAST_META.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+
 def main() -> int:
     import soundcard as sc
 
@@ -51,6 +71,7 @@ def main() -> int:
 
     seq = 0
     current_key = ""
+    current_meta: dict = {}
     last_state_read = 0.0
     error = None
 
@@ -64,8 +85,18 @@ def main() -> int:
                         st = json.loads(STATE_FILE.read_text(encoding="utf-8")) if STATE_FILE.exists() else {}
                         key = st.get("key") or ""
                         if key and key != current_key:
+                            if current_key and seq > 0:
+                                rotate_to_last(current_meta, seq)
                             clear_buffer()
                             current_key = key
+                            current_meta = {
+                                "key": key,
+                                "title": st.get("title", ""),
+                                "artist": st.get("artist", ""),
+                                "album": st.get("album", ""),
+                                "duration": st.get("duration"),
+                                "rotated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            }
                             seq = 0
                     except (OSError, ValueError):
                         pass

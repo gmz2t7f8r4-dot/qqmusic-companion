@@ -253,15 +253,25 @@ def health() -> tuple[bool, str | None]:
 
 
 # ---------- 一起听（听歌分析） ----------
-def create_listen_job(mode: str) -> str:
+def create_listen_job(mode: str, status: str = "pending", track_title: str | None = None) -> str:
     job_id = uuid.uuid4().hex[:12]
     with db() as conn:
         conn.execute(
-            "INSERT INTO listen_jobs(id, mode, status, requested_at) VALUES(?,?,?,?)",
-            (job_id, mode, "pending", now_iso()),
+            "INSERT INTO listen_jobs(id, mode, status, requested_at, track_title) VALUES(?,?,?,?,?)",
+            (job_id, mode, status, now_iso(), track_title),
         )
         conn.commit()
     return job_id
+
+
+def reserved_listen_jobs() -> list[dict]:
+    """等这首放完就深听的预约。"""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, mode, track_title, requested_at FROM listen_jobs "
+            "WHERE status='reserved' ORDER BY requested_at"
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def claim_listen_job(device: str) -> dict | None:
@@ -305,6 +315,13 @@ def expire_stale_jobs(minutes: int = 15) -> int:
             "UPDATE listen_jobs SET status='failed', error=?, finished_at=? "
             "WHERE status='running' AND COALESCE(claimed_at, requested_at) < ?",
             ("分析超时：采集器没把结果传回来（可能断网或休眠了）", now_iso(), cutoff),
+        )
+        # 预约太久没等到（比如这首一直没放完）就作废
+        reserve_cutoff = iso(now() - timedelta(minutes=180))
+        conn.execute(
+            "UPDATE listen_jobs SET status='failed', error=?, finished_at=? "
+            "WHERE status='reserved' AND requested_at < ?",
+            ("预约过期：这首一直没放完", now_iso(), reserve_cutoff),
         )
         conn.commit()
         return cur.rowcount

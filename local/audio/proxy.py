@@ -11,6 +11,8 @@ class RecorderProxy:
     def __init__(self, tmp_dir: Path) -> None:
         self.tmp_dir = Path(tmp_dir)
         self.buf_dir = self.tmp_dir / "buf"
+        self.last_dir = self.tmp_dir / "last"
+        self.last_meta_file = self.tmp_dir / "last-meta.json"
         self.state_file = self.tmp_dir / "state.json"
         self.status_file = self.tmp_dir / "recorder-status.json"
 
@@ -63,6 +65,33 @@ class RecorderProxy:
 
         seconds = len(frames) / (48000 * 2)
         return info.get("key", ""), info.get("title", ""), seconds
+
+    def last_info(self) -> dict:
+        """上一首（刚放完那首）的录音信息。"""
+        try:
+            return json.loads(self.last_meta_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def snapshot_last(self, target: Path) -> tuple[dict, float]:
+        """把上一首的完整录音拼成 wav，返回 (信息, 秒数)。"""
+        meta = self.last_info()
+        chunks = sorted(self.last_dir.glob("*.pcm"))
+        if not chunks:
+            return meta, 0.0
+        frames = bytearray()
+        for chunk in chunks:
+            try:
+                frames += chunk.read_bytes()
+            except OSError:
+                continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(target), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(48000)
+            wf.writeframes(bytes(frames))
+        return meta, len(frames) / (48000 * 2)
 
     # 兼容原录音线程的接口（分析进程这边不需要真做事）
     def set_track(self, *args, **kwargs) -> None:

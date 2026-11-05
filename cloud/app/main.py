@@ -76,6 +76,12 @@ async def listen_claim(device: str = "unknown") -> dict:
     return {"job": job, "server_time": now_iso()}
 
 
+@api.get("/api/v1/listen/reserved", dependencies=[Depends(require_collector)])
+async def listen_reserved() -> dict:
+    """本地采集器来取"等这首放完再深听"的预约。"""
+    return {"jobs": db.reserved_listen_jobs(), "server_time": now_iso()}
+
+
 @api.post("/api/v1/listen/result", dependencies=[Depends(require_collector)])
 async def listen_result(body: ListenResultBody) -> dict:
     db.finish_listen_job(body.job_id, body.ok, body.report, body.error, body.seconds, body.title)

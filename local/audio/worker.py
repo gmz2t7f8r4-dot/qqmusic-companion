@@ -66,6 +66,7 @@ class ListenWorker(threading.Thread):
             self._stopping.wait(self.cfg.listen_poll_seconds)
 
     def _tick(self) -> None:
+        self._handle_reserved()
         status, payload = self._call("GET", f"/api/v1/listen/job?device={self.cfg.device_name}")
         if status != 200 or not isinstance(payload, dict):
             if status != 0:
@@ -144,6 +145,79 @@ class ListenWorker(threading.Thread):
         finally:
             for leftover in (wav, self.audio_dir / f"{job_id}.lrc"):
                 if leftover and Path(leftover).exists():
+                    try:
+                        Path(leftover).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
+    # ---------- 预约：这首放完再深听 ----------
+    def _handle_reserved(self) -> None:
+        last_info = getattr(self.recorder, "last_info", None)
+        snapshot_last = getattr(self.recorder, "snapshot_last", None)
+        if last_info is None or snapshot_last is None:
+            return
+
+        status, payload = self._call("GET", "/api/v1/listen/reserved")
+        if status != 200 or not isinstance(payload, dict):
+            return
+        jobs = payload.get("jobs") or []
+        if not jobs:
+            return
+
+        info = last_info()
+        seconds = float(info.get("seconds") or 0)
+        if seconds < self.cfg.listen_min_seconds:
+            return
+        rotated = info.get("rotated_at")
+        if not rotated or rotated == getattr(self, "_last_rotated", None):
+            return
+
+        target = None
+        for job in jobs:
+            wanted = (job.get("track_title") or "").strip()
+            got = (info.get("title") or "").strip()
+            if wanted and got and wanted != got:
+                continue
+            target = job
+            break
+        if target is None:
+            return
+
+        self._last_rotated = rotated
+        job_id = target["id"]
+        title = info.get("title") or target.get("track_title") or job_id
+        duration = info.get("duration")
+        log.info("预约的任务 %s：%s 放完了（%.0f 秒），开始深听", job_id, title, seconds)
+
+        wav = self.audio_dir / f"{self._safe_name(title) or job_id}.wav"
+        lrc_path = None
+        try:
+            _, secs = snapshot_last(wav)
+            try:
+                from audio.lyrics_for_analysis import fetch_lrc, write_lrc
+
+                lrc = fetch_lrc(title, info.get("artist"), duration or secs)
+                if lrc:
+                    lrc_path = write_lrc(lrc, self.audio_dir / f"{job_id}.lrc")
+            except Exception:  # noqa: BLE001
+                log.warning("取歌词失败，按纯音乐处理", exc_info=True)
+
+            outcome = analyze(wav, "deep", venv_python=self.cfg.audio_python,
+                              tinggu_dir=self.cfg.tinggu_dir,
+                              lyric=str(lrc_path) if lrc_path else None)
+            if outcome.get("ok"):
+                self.jobs_done += 1
+                self._finish(job_id, True, self._with_coverage(outcome["report"], secs, duration),
+                             None, secs, title)
+                log.info("预约深听完成：%s", title)
+            else:
+                self._finish(job_id, False, None, outcome.get("error") or "深听失败", secs, title)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("预约深听出错")
+            self._finish(job_id, False, None, f"本机处理失败：{exc}")
+        finally:
+            for leftover in (wav, self.audio_dir / f"{job_id}.lrc"):
+                if Path(leftover).exists():
                     try:
                         Path(leftover).unlink(missing_ok=True)
                     except OSError:
