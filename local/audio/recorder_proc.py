@@ -39,8 +39,15 @@ def clear_buffer() -> None:
             pass
 
 
-def rotate_to_last(meta: dict, chunks: int) -> None:
-    """切歌时：把当前这首的录音挪到 last/，只保留最近一首。"""
+def rotate_to_last(meta: dict, chunks: int) -> bool:
+    """切歌时：把当前这首的录音挪到 last/，只保留最近一首。
+
+    太短的（< 15 秒）不覆盖：QQ 音乐切歌瞬间偶尔会来回报两次，
+    不然会把刚放完那首的完整录音盖成新歌的头 1~2 秒。
+    """
+    seconds = chunks * BLOCK_SECONDS
+    if seconds < 15:
+        return False
     LAST_DIR.mkdir(parents=True, exist_ok=True)
     for old in LAST_DIR.glob("*.pcm"):
         try:
@@ -53,8 +60,9 @@ def rotate_to_last(meta: dict, chunks: int) -> None:
         except OSError:
             pass
     meta = dict(meta)
-    meta["seconds"] = round(chunks * BLOCK_SECONDS, 1)
+    meta["seconds"] = round(seconds, 1)
     LAST_META.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    return True
 
 
 def main() -> int:

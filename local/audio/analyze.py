@@ -37,6 +37,9 @@ def analyze(wav_path: Path, mode: str = "shallow", venv_python: Path | None = No
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
+    # 听骨会写缓存文件，默认按系统编码（Windows 上是 GBK）；
+    # 歌名里有韩文/日文时写不进去会崩，这里强制子进程走 UTF-8。
+    env["PYTHONUTF8"] = "1"
 
     # PANNs 的两个模型文件没下全时，用一个占位模块让它直接跳过这一层，
     # 免得听骨在分析途中去下载 330MB 的模型、把任务卡住几十分钟。
@@ -49,11 +52,22 @@ def analyze(wav_path: Path, mode: str = "shallow", venv_python: Path | None = No
 
     timeout = DEEP_TIMEOUT if mode == "deep" else SHALLOW_TIMEOUT
 
-    try:
-        result = subprocess.run(
+    def run_once():
+        return subprocess.run(
             cmd, cwd=str(tinggu_dir), capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout, env=env,
         )
+
+    try:
+        result = run_once()
+        # 老缓存可能还是 GBK 写的，读不了就清掉缓存重算一次
+        if result.returncode != 0 and "codec can't decode" in (result.stderr or ""):
+            cache = tinggu_dir / "ears_cache"
+            if cache.exists():
+                import shutil
+
+                shutil.rmtree(cache, ignore_errors=True)
+            result = run_once()
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"分析超时（{timeout} 秒）", "report": None}
     except Exception as exc:  # noqa: BLE001

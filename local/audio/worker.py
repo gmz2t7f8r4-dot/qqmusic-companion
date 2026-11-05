@@ -193,6 +193,11 @@ class ListenWorker(threading.Thread):
         lrc_path = None
         try:
             _, secs = snapshot_last(wav)
+            if secs < self.cfg.listen_min_seconds:
+                self._finish(job_id, False, None,
+                             f"这首歌的录音没保存好（只有 {secs:.0f} 秒），这次没做成，下次再约", secs, title)
+                log.warning("预约 %s 的录音只有 %.0f 秒，放弃", job_id, secs)
+                return
             try:
                 from audio.lyrics_for_analysis import fetch_lrc, write_lrc
 
