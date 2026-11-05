@@ -153,7 +153,9 @@ class App:
             db.init()
             settings.db_path.parent.mkdir(parents=True, exist_ok=True)
             deleted = db.cleanup_old_events()
-            log.info("启动清理：删除过期记录 %d 条（保留 %d 天）", deleted, settings.retention_days)
+            listen_deleted = db.cleanup_listen_jobs()
+            log.info("启动清理：删除过期播放记录 %d 条、听歌分析 %d 条（保留 %d 天）",
+                     deleted, listen_deleted, settings.retention_days)
         except Exception as exc:  # noqa: BLE001
             log.exception("启动失败")
             await send({"type": "lifespan.startup.failed", "message": str(exc)})
@@ -184,8 +186,9 @@ class App:
             try:
                 await asyncio.sleep(settings.cleanup_interval_seconds)
                 deleted = db.cleanup_old_events()
-                if deleted:
-                    log.info("定时清理：删除过期记录 %d 条", deleted)
+                listen_deleted = db.cleanup_listen_jobs()
+                if deleted or listen_deleted:
+                    log.info("定时清理：播放记录 %d 条、听歌分析 %d 条", deleted, listen_deleted)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

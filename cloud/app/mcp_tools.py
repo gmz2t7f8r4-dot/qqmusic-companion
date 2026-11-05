@@ -380,3 +380,26 @@ def get_listen_result(job_id: str) -> dict:
         "report": job.get("report"),
         "note": job.get("error") if job["status"] == "failed" else None,
     }
+
+
+@mcp.tool()
+def get_listen_history(days: int = 7, title: str | None = None, limit: int = 20, offset: int = 0) -> dict:
+    """先看"什么时候听过哪些歌"：最近七天里，AI 一起听过、分析过的歌。
+
+    只列清单（时间、歌名、浅听/深听、成功与否、任务号），不带报告正文。
+    七天里可能有很多首，用 limit/offset 翻页；返回里的 total 是这段时间的总条数。
+    想听哪一首的详情，再拿 job_id 调 get_listen_result 取那次的报告。
+    """
+    days = max(1, min(days, settings.retention_days))
+    rows, total = db.listen_history(days, title, limit, offset, include_report=False)
+    return {
+        "ok": True,
+        "days": days,
+        "count": len(rows),
+        "total": total,
+        "offset": offset,
+        "has_more": offset + len(rows) < total,
+        "items": rows,
+        "note": None if rows else "这几天还没有让小奥听过歌",
+        "server_time": now_iso(),
+    }

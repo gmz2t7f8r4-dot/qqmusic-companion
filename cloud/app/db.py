@@ -307,10 +307,30 @@ def recent_listen_jobs(limit: int = 5) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def cleanup_listen_jobs(days: int = 2) -> int:
-    from datetime import timedelta
+def listen_history(days: int, title: str | None = None, limit: int = 20, offset: int = 0,
+                   include_report: bool = False) -> tuple[list[dict], int]:
+    """最近 N 天"听过哪些歌"的记录（列表 + 总条数），和播放记录一样按七天保留。"""
+    cutoff = iso(now() - timedelta(days=days))
+    columns = "id, mode, status, track_title, requested_at, finished_at, seconds_recording"
+    if include_report:
+        columns += ", report, error"
+    where = "WHERE requested_at >= ?"
+    params: list = [cutoff]
+    if title:
+        where += " AND track_title LIKE ?"
+        params.append(f"%{title}%")
+    with db() as conn:
+        total = int(conn.execute(f"SELECT COUNT(*) FROM listen_jobs {where}", params).fetchone()[0])
+        rows = conn.execute(
+            f"SELECT {columns} FROM listen_jobs {where} ORDER BY requested_at DESC LIMIT ? OFFSET ?",
+            params + [max(1, min(limit, 100)), max(0, offset)],
+        ).fetchall()
+    return [dict(row) for row in rows], total
 
-    cutoff = iso(datetime.now() - timedelta(days=days))
+
+def cleanup_listen_jobs(days: int | None = None) -> int:
+    days = days or settings.retention_days
+    cutoff = iso(now() - timedelta(days=days))
     with db() as conn:
         cur = conn.execute("DELETE FROM listen_jobs WHERE requested_at < ?", (cutoff,))
         conn.commit()
