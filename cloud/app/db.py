@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT
 );
 
--- 一起听：小奥发起的"听一下正在放的这首歌"任务
+-- 一起听：AI 发起的"听一下正在放的这首歌"任务
 CREATE TABLE IF NOT EXISTS listen_jobs (
     id TEXT PRIMARY KEY,
     mode TEXT NOT NULL,

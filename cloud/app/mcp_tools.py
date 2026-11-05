@@ -308,7 +308,7 @@ def _collector_online() -> tuple[bool, float | None]:
 
 @mcp.tool()
 def listen_now(mode: str = "shallow", wait_seconds: int = 20) -> dict:
-    """让小奥"亲耳听一下"我正在放的那首歌，拿到一份文字听感报告。
+    """让 AI"亲耳听一下"我正在放的那首歌，拿到一份文字听感报告。
 
     mode: shallow（浅听，快，几十秒）或 deep（深听，要等歌放完再分析一两分钟）。
     wait_seconds: 愿意最多等多久；超时会返回任务号，可以稍后用 get_listen_result 再取。

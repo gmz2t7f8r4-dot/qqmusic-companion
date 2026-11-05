@@ -60,7 +60,7 @@ python -c "import secrets;print(secrets.token_urlsafe(24))"
 资源 → **Domains** → 填 Coolify 给的地址，例如：
 
 ```
-https://nqt3disrkppclflxphbf2qva.118.89.161.37.sslip.io
+https://你的服务器IP.sslip.io
 ```
 
 保存后 Coolify 会自动申请证书。手机上能打开就是证书好了。
