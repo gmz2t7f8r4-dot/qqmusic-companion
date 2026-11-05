@@ -17,6 +17,21 @@ SHALLOW_TIMEOUT = 300
 DEEP_TIMEOUT = 1200
 
 
+def _clean(text: str) -> str:
+    """去掉分离模型打出来的进度条和提示行，别混进报告正文。"""
+    import re
+
+    noise = (
+        re.compile(r"^\s*\d{1,3}%\|"),
+        re.compile(r"seconds/s"),
+        re.compile(r"^Selected model is a bag"),
+        re.compile(r"^Separated tracks will be stored"),
+        re.compile(r"^Separating track "),
+    )
+    lines = [ln for ln in text.splitlines() if not any(p.search(ln) for p in noise)]
+    return "\n".join(lines).strip()
+
+
 def analyze(wav_path: Path, mode: str = "shallow", venv_python: Path | None = None,
             tinggu_dir: Path | None = None, lyric: str | None = None) -> dict:
     venv_python = Path(venv_python) if venv_python else DEFAULT_VENV
@@ -73,9 +88,9 @@ def analyze(wav_path: Path, mode: str = "shallow", venv_python: Path | None = No
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"分析启动失败：{exc}", "report": None}
 
-    report = (result.stdout or "").strip()
+    report = _clean(result.stdout or "")
     if result.returncode != 0 and not report:
-        return {"ok": False, "error": (result.stderr or "分析失败")[-800:], "report": None}
+        return {"ok": False, "error": _clean(result.stderr or "")[-800:], "report": None}
 
     return {
         "ok": bool(report),
