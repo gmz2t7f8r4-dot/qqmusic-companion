@@ -94,6 +94,17 @@ class ListenWorker(threading.Thread):
             return
 
         info = self.recorder.track_info()
+        duration = info.get("duration")
+        coverage = (buffered / duration) if duration else None
+
+        # 深听要整首：只录到片段就明确拒绝，不出一份"看着像整首"的深听
+        if mode == "deep" and coverage is not None and coverage < 0.85:
+            note = (f"深听需要整首歌，这次只录到 {buffered:.0f} 秒 / 全曲约 {duration:.0f} 秒"
+                    f"（{coverage * 100:.0f}%），改天完整听一遍再深听")
+            log.info("任务 %s 拒绝深听：覆盖率只有 %.0f%%", job_id, coverage * 100)
+            self._finish(job_id, False, None, note)
+            return
+
         wav = self.audio_dir / f"{self._safe_name(info.get('title')) or job_id}.wav"
         started = time.time()
         try:
@@ -121,7 +132,8 @@ class ListenWorker(threading.Thread):
             log.info("任务 %s 分析结束：ok=%s（共 %.0f 秒）", job_id, outcome.get("ok"), time.time() - started)
             if outcome.get("ok"):
                 self.jobs_done += 1
-                self._finish(job_id, True, outcome["report"], None, seconds, title)
+                self._finish(job_id, True, self._with_coverage(outcome["report"], seconds, duration),
+                             None, seconds, title)
                 log.info("分析完成：%s", title or key)
             else:
                 self._finish(job_id, False, None, outcome.get("error") or "分析失败", seconds, title)
@@ -143,6 +155,21 @@ class ListenWorker(threading.Thread):
 
         cleaned = re.sub("[\\\\/:*?\"<>|\\r\\n]", "_", (text or "").strip())
         return cleaned[:40]
+
+    @staticmethod
+    def _with_coverage(report: str, seconds: float, duration: float | None) -> str:
+        """在报告开头写清"这次录了多少、是不是整首"，避免被当成完整分析。"""
+        if not duration:
+            header = (f"【完整度】这次录到 {seconds:.0f} 秒；这首的时长没查到，"
+                      "无法判断是不是整首，当作片段看。\n\n")
+        elif seconds < duration * 0.95:
+            header = (f"【完整度】这次只录到 {seconds:.0f} 秒，全曲约 {duration:.0f} 秒"
+                      f"（{seconds / duration * 100:.0f}%），是片段，不是整首；"
+                      "报告里的时间从这次录音的起点算，不是从歌头算"
+                      "（QQ 音乐不提供播放进度，起点在歌里的位置无法确定）。\n\n")
+        else:
+            header = f"【完整度】基本是整首（录到 {seconds:.0f} 秒，全曲约 {duration:.0f} 秒）。\n\n"
+        return header + report
 
     def _finish(self, job_id: str, ok: bool, report: str | None, error: str | None,
                 seconds: float | None = None, title: str | None = None) -> None:
