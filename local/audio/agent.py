@@ -59,6 +59,7 @@ def main() -> int:
     worker = ListenWorker(cfg, proxy, TMP_DIR)  # type: ignore[arg-type]
     worker.start()
     log.info("一起听进程就绪")
+    dup_logged = False
 
     try:
         while True:
@@ -72,14 +73,22 @@ def main() -> int:
             (TMP_DIR / "agent-status.json").write_text(
                 json.dumps(status, ensure_ascii=False), encoding="utf-8")
             if recorder is not None and recorder.poll() is not None:
-                log.warning("录音进程退出了，重启一次")
-                try:
-                    recorder = subprocess.Popen(
-                        [str(python), "-u", str(APP_DIR / "audio" / "recorder_proc.py")],
-                        cwd=str(APP_DIR), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    )
-                except Exception:  # noqa: BLE001
-                    log.exception("录音进程重启失败")
+                code = recorder.returncode
+                if code == 2:
+                    # 已经有别的录音进程在跑（单实例保护），不要去抢
+                    if not dup_logged:
+                        log.warning("已有录音进程在运行，这边不重复启动")
+                        dup_logged = True
+                    recorder = None
+                else:
+                    log.warning("录音进程退出了（code=%s），重启一次", code)
+                    try:
+                        recorder = subprocess.Popen(
+                            [str(python), "-u", str(APP_DIR / "audio" / "recorder_proc.py")],
+                            cwd=str(APP_DIR), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.exception("录音进程重启失败")
             time.sleep(2)
     except KeyboardInterrupt:
         pass

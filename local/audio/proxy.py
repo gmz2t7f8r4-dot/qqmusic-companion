@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import wave
 from pathlib import Path
 
@@ -75,6 +76,13 @@ class RecorderProxy:
 
     def snapshot_last(self, target: Path) -> tuple[dict, float]:
         """把上一首的完整录音拼成 wav，返回 (信息, 秒数)。"""
+        # 切歌轮转可能正在进行，等它写完再读，别读到一半
+        marker = self.last_dir / ".rotating"
+        for _ in range(50):
+            if not marker.exists():
+                break
+            time.sleep(0.1)
+
         meta = self.last_info()
         chunks = sorted(self.last_dir.glob("*.pcm"))
         if not chunks:

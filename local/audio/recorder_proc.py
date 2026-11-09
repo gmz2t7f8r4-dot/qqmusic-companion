@@ -49,24 +49,42 @@ def rotate_to_last(meta: dict, chunks: int) -> bool:
     if seconds < 15:
         return False
     LAST_DIR.mkdir(parents=True, exist_ok=True)
-    for old in LAST_DIR.glob("*.pcm"):
+    marker = LAST_DIR / ".rotating"
+    marker.write_text("1", encoding="ascii")
+    try:
+        for old in LAST_DIR.glob("*.pcm"):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        for item in sorted(BUF_DIR.glob("*.pcm")):
+            try:
+                item.replace(LAST_DIR / item.name)
+            except OSError:
+                pass
+        meta = dict(meta)
+        meta["seconds"] = round(seconds, 1)
+        LAST_META.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    finally:
         try:
-            old.unlink()
+            marker.unlink(missing_ok=True)
         except OSError:
             pass
-    for item in sorted(BUF_DIR.glob("*.pcm")):
-        try:
-            item.replace(LAST_DIR / item.name)
-        except OSError:
-            pass
-    meta = dict(meta)
-    meta["seconds"] = round(seconds, 1)
-    LAST_META.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     return True
 
 
 def main() -> int:
+    import ctypes
+
     import soundcard as sc
+
+    # 只允许一个录音进程：两个同时写同一份缓冲会互相覆盖，
+    # 出现"录了 442 秒，切到 last 只剩 2 秒"这种怪事。
+    kernel32 = ctypes.windll.kernel32
+    mutex = kernel32.CreateMutexW(None, False, "Global\\QQMusicCompanionRecorder")
+    if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        return 2
+    _ = mutex  # 保持引用，进程退出才释放
 
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     BUF_DIR.mkdir(parents=True, exist_ok=True)
