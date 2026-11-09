@@ -72,8 +72,13 @@ class ListenWorker(threading.Thread):
             if status != 0:
                 log.warning("领任务返回 HTTP %s：%s", status, str(payload)[:120])
                 self.last_error = f"领任务失败 HTTP {status}"
+            else:
+                self._net_errors = getattr(self, "_net_errors", 0) + 1
+                if self._net_errors % 20 == 1:
+                    log.warning("连不上云端（已连续 %d 次）：%s", self._net_errors, str(payload)[:120])
             return
         job = payload.get("job")
+        self._net_errors = 0
         if not job:
             self._polls = getattr(self, "_polls", 0) + 1
             if self._polls % 200 == 1:

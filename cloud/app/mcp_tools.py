@@ -408,6 +408,7 @@ def get_listen_history(days: int = 7, title: str | None = None, limit: int = 20,
     想听哪一首的详情，再拿 job_id 调 get_listen_result 取那次的报告。
     """
     days = max(1, min(days, settings.retention_days))
+    db.expire_stale_jobs()
     rows, total = db.listen_history(days, title, limit, offset, include_report=False)
     return {
         "ok": True,

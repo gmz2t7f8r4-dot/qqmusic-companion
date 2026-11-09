@@ -307,7 +307,7 @@ def get_listen_job(job_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def expire_stale_jobs(minutes: int = 15) -> int:
+def expire_stale_jobs(minutes: int = 3) -> int:
     """卡在 running 太久的任务判失败（电脑断网/休眠时常见），免得永远"进行中"。"""
     cutoff = iso(now() - timedelta(minutes=minutes))
     with db() as conn:
