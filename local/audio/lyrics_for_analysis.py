@@ -66,6 +66,25 @@ def fetch_lrc(title: str, artist: str | None, duration: float | None = None) -> 
             continue
         if hit.get("syncedLyrics"):
             return hit["syncedLyrics"]
+
+    # 翻唱兜底：只按歌名找一次（翻唱歌词通常和原唱一样，按歌手搜会搜不到）
+    try:
+        req = urllib.request.Request(
+            f"{API}/search?{urllib.parse.urlencode({'track_name': title})}",
+            headers={"User-Agent": UA, "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            loose = json.load(resp)
+    except Exception:  # noqa: BLE001
+        return None
+
+    if not isinstance(loose, list):
+        return None
+    for hit in loose:
+        if _norm(hit.get("trackName")) != _norm(title):
+            continue
+        if hit.get("syncedLyrics"):
+            return hit["syncedLyrics"]
     return None
 
 
